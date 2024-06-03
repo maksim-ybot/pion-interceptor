@@ -17,3 +17,11 @@ func Log(log logging.LeveledLogger) ReceiverInterceptorOption {
 		return nil
 	}
 }
+
+// Size sets a buffer size
+func Size(size uint16) ReceiverInterceptorOption {
+	return func(d *ReceiverInterceptor) error {
+		d.bufferSize = size
+		return nil
+	}
+}
