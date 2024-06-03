@@ -19,9 +19,9 @@ type InterceptorFactory struct {
 // NewInterceptor constructs a new ReceiverInterceptor
 func (g *InterceptorFactory) NewInterceptor(_ string) (interceptor.Interceptor, error) {
 	i := &ReceiverInterceptor{
-		close:  make(chan struct{}),
-		log:    logging.NewDefaultLoggerFactory().NewLogger("jitterbuffer"),
-		buffer: New(),
+		close:      make(chan struct{}),
+		log:        logging.NewDefaultLoggerFactory().NewLogger("jitterbuffer"),
+		bufferSize: 50,
 	}
 
 	for _, opt := range g.opts {
@@ -29,7 +29,7 @@ func (g *InterceptorFactory) NewInterceptor(_ string) (interceptor.Interceptor, 
 			return nil, err
 		}
 	}
-
+	i.buffer = New(WithMinimumPacketCount(i.bufferSize))
 	return i, nil
 }
 
@@ -52,11 +52,12 @@ func (g *InterceptorFactory) NewInterceptor(_ string) (interceptor.Interceptor, 
 //	arriving) quickly enough.
 type ReceiverInterceptor struct {
 	interceptor.NoOp
-	buffer *JitterBuffer
-	m      sync.Mutex
-	wg     sync.WaitGroup
-	close  chan struct{}
-	log    logging.LeveledLogger
+	buffer     *JitterBuffer
+	m          sync.Mutex
+	wg         sync.WaitGroup
+	close      chan struct{}
+	log        logging.LeveledLogger
+	bufferSize uint16
 }
 
 // NewInterceptor returns a new InterceptorFactory
