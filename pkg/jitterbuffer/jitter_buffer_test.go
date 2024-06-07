@@ -4,8 +4,10 @@
 package jitterbuffer
 
 import (
+	"fmt"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/pion/rtp"
 	"github.com/stretchr/testify/assert"
@@ -95,7 +97,7 @@ func TestJitterBuffer(t *testing.T) {
 		for i := 0; i < 100; i++ {
 			head, err := jb.Pop()
 			if i < 99 {
-				assert.Equal(head.SequenceNumber, uint16((math.MaxUint16 - 31 + i)))
+				assert.Equal(head.SequenceNumber, uint16(math.MaxUint16-31+i))
 				assert.Equal(err, nil)
 			} else {
 				assert.Equal(head, (*rtp.Packet)(nil))
@@ -106,7 +108,7 @@ func TestJitterBuffer(t *testing.T) {
 	t.Run("Pops at timestamp correctly", func(*testing.T) {
 		jb := New()
 		for i := 0; i < 100; i++ {
-			sqnum := uint16((math.MaxUint16 - 32 + i))
+			sqnum := uint16(math.MaxUint16 - 32 + i)
 			jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: sqnum, Timestamp: uint32(512 + i)}, Payload: []byte{0x02}})
 		}
 		assert.Equal(jb.packets.Length(), uint16(100))
@@ -132,7 +134,7 @@ func TestJitterBuffer(t *testing.T) {
 		assert.Equal(pkt.SequenceNumber, uint16(5002))
 		assert.Equal(err, nil)
 		for i := 0; i < 100; i++ {
-			sqnum := uint16((math.MaxUint16 - 32 + i))
+			sqnum := uint16(math.MaxUint16 - 32 + i)
 			jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: sqnum, Timestamp: uint32(512 + i)}, Payload: []byte{0x02}})
 		}
 		pkt, err = jb.Peek(true)
@@ -143,7 +145,7 @@ func TestJitterBuffer(t *testing.T) {
 	t.Run("Pops at sequence with an invalid sequence number", func(*testing.T) {
 		jb := New()
 		for i := 0; i < 50; i++ {
-			sqnum := uint16((math.MaxUint16 - 32 + i))
+			sqnum := uint16(math.MaxUint16 - 32 + i)
 			jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: sqnum, Timestamp: uint32(512 + i)}, Payload: []byte{0x02}})
 		}
 		jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: 1019, Timestamp: uint32(9000)}, Payload: []byte{0x02}})
@@ -158,7 +160,7 @@ func TestJitterBuffer(t *testing.T) {
 	t.Run("Pops at timestamp with multiple packets", func(*testing.T) {
 		jb := New()
 		for i := 0; i < 50; i++ {
-			sqnum := uint16((math.MaxUint16 - 32 + i))
+			sqnum := uint16(math.MaxUint16 - 32 + i)
 			jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: sqnum, Timestamp: uint32(512 + i)}, Payload: []byte{0x02}})
 		}
 		jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: 1019, Timestamp: uint32(9000)}, Payload: []byte{0x02}})
@@ -180,7 +182,7 @@ func TestJitterBuffer(t *testing.T) {
 	t.Run("Peeks at timestamp with multiple packets", func(*testing.T) {
 		jb := New()
 		for i := 0; i < 50; i++ {
-			sqnum := uint16((math.MaxUint16 - 32 + i))
+			sqnum := uint16(math.MaxUint16 - 32 + i)
 			jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: sqnum, Timestamp: uint32(512 + i)}, Payload: []byte{0x02}})
 		}
 		jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: 1019, Timestamp: uint32(9000)}, Payload: []byte{0x02}})
@@ -211,32 +213,39 @@ func TestJitterBuffer(t *testing.T) {
 		}
 
 		// The first 3 packets will be able to popped
-		for i := 0; i < 4; i++ {
+		for i := uint16(0); i < 4; i++ {
 			pkt, err := jb.Pop()
 			assert.NoError(err)
 			assert.NotNil(pkt)
+			assert.Equal(i, pkt.SequenceNumber)
 		}
 
 		// The next pop will fail because of gap
 		pkt, err := jb.Pop()
 		assert.ErrorIs(err, ErrNotFound)
 		assert.Nil(pkt)
-		assert.Equal(jb.PlayoutHead(), uint16(4))
+		assert.Equal(jb.PlayoutHead(), uint16(5))
 
-		// Assert that PlayoutHead isn't modified with pushing/popping again
+		// Assert that PlayoutHead IS modified and the next packet IS available
 		jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: 10, Timestamp: uint32(522)}, Payload: []byte{0x00}})
 		pkt, err = jb.Pop()
-		assert.ErrorIs(err, ErrNotFound)
-		assert.Nil(pkt)
-		assert.Equal(jb.PlayoutHead(), uint16(4))
+		assert.NoError(err)
+		assert.NotNil(pkt)
+		assert.Equal(uint16(5), pkt.SequenceNumber)
+		assert.Equal(jb.PlayoutHead(), uint16(6))
 
-		// Increment the PlayoutHead and popping will work again
-		jb.SetPlayoutHead(jb.PlayoutHead() + 1)
-		for i := 0; i < 6; i++ {
-			pkt, err := jb.Pop()
+		// The PlayoutHead was incremented on the previous Pop and popping will work again
+		for i := uint16(6); i < 11; i++ {
+			pkt, err = jb.Pop()
 			assert.NoError(err)
 			assert.NotNil(pkt)
+			assert.Equal(i, pkt.SequenceNumber)
 		}
+
+		// Now the buffer is empty
+		pkt, err = jb.Pop()
+		assert.ErrorIs(err, ErrInvalidOperation)
+		assert.Nil(pkt)
 	})
 
 	t.Run("Allows clearing the buffer", func(*testing.T) {
@@ -253,5 +262,51 @@ func TestJitterBuffer(t *testing.T) {
 		assert.Equal(jb.lastSequence, uint16(0))
 		assert.Equal(jb.stats.outOfOrderCount, uint32(0))
 		assert.Equal(jb.packets.Length(), uint16(0))
+	})
+
+	t.Run("Check packet loss", func(*testing.T) {
+		jb := New(WithMinimumPacketCount(10))
+
+		for s := uint16(1); s < 99; s++ {
+			// Every 3rd packet is lost
+			if s%3 == 0 {
+				continue
+			}
+			jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: s}, Payload: []byte{0x00}})
+		}
+
+		for s := uint16(1); s < 99; s++ {
+			packet, err := jb.Pop()
+
+			if s%3 == 0 {
+				assert.ErrorIs(err, ErrNotFound)
+				assert.Nil(packet)
+			} else {
+				assert.NoError(err)
+				assert.NotNil(packet)
+				assert.Equal(s, packet.SequenceNumber)
+			}
+		}
+	})
+
+	t.Run("Check outdated", func(*testing.T) {
+		jb := New(WithMinimumPacketCount(5))
+		fmt.Println(jb.packets.Length())
+		for s := uint16(1); s < 20; s++ {
+			jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: s}, Payload: []byte{0x00}})
+		}
+
+		time.Sleep(time.Second)
+		fmt.Println(jb.packets.Length())
+		for s := uint16(1); s < 11; s++ {
+			_, _ = jb.Pop()
+		}
+
+		fmt.Println(jb.packets.Length())
+
+		// outdated packet
+		jb.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: 0}, Payload: []byte{0x00}})
+
+		fmt.Println(jb.packets.Length())
 	})
 }
