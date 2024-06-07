@@ -4,7 +4,6 @@
 package jitterbuffer
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/pion/interceptor"
@@ -85,9 +84,6 @@ func (i *ReceiverInterceptor) BindRemoteStream(_ *interceptor.StreamInfo, reader
 		if i.buffer.state == Emitting {
 			newPkt, err := i.buffer.Pop()
 			if err != nil {
-				if errors.Is(err, ErrNotFound) {
-					i.buffer.SetPlayoutHead(i.buffer.PlayoutHead() + 1)
-				}
 				return 0, nil, err
 			}
 			nlen, err := newPkt.MarshalTo(b)

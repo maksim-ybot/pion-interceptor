@@ -7,6 +7,7 @@ package jitterbuffer
 
 import (
 	"errors"
+	"math"
 	"sync"
 
 	"github.com/pion/rtp"
@@ -43,6 +44,11 @@ const (
 	BufferOverflow = "overflow"
 )
 
+const (
+	minStartCountDefault = 50
+	maxLengthDefault     = 100
+)
+
 func (jbs State) String() string {
 	switch jbs {
 	case Buffering:
@@ -73,6 +79,7 @@ type JitterBuffer struct {
 	stats         Stats
 	listeners     map[Event][]EventListener
 	mutex         sync.Mutex
+	maxLength     uint16
 }
 
 // Stats Track interesting statistics for the life of this JitterBuffer
@@ -86,16 +93,18 @@ type Stats struct {
 	outOfOrderCount uint32
 	underflowCount  uint32
 	overflowCount   uint32
+	outdatedCount   uint32
 }
 
 // New will initialize a jitter buffer and its associated statistics
 func New(opts ...Option) *JitterBuffer {
 	jb := &JitterBuffer{
 		state:         Buffering,
-		stats:         Stats{0, 0, 0},
-		minStartCount: 50,
+		stats:         Stats{0, 0, 0, 0},
+		minStartCount: minStartCountDefault,
 		packets:       NewQueue(),
 		listeners:     make(map[Event][]EventListener),
+		maxLength:     maxLengthDefault,
 	}
 
 	for _, o := range opts {
@@ -154,8 +163,15 @@ func (jb *JitterBuffer) Push(packet *rtp.Packet) {
 	defer jb.mutex.Unlock()
 	if jb.packets.Length() == 0 {
 		jb.emit(StartBuffering)
+	} else {
+
 	}
-	if jb.packets.Length() > 100 {
+
+	if packet.SequenceNumber < jb.playoutHead && jb.playoutHead < math.MaxUint16/2 && jb.packets.Length() > 0 {
+		jb.stats.outdatedCount++
+		return
+	}
+	if jb.packets.Length() > jb.maxLength {
 		jb.stats.overflowCount++
 		jb.emit(BufferOverflow)
 	}
@@ -212,9 +228,10 @@ func (jb *JitterBuffer) Pop() (*rtp.Packet, error) {
 	if err != nil {
 		jb.stats.underflowCount++
 		jb.emit(BufferUnderflow)
+		jb.playoutHead++
 		return nil, err
 	}
-	jb.playoutHead = (jb.playoutHead + 1)
+	jb.playoutHead++
 	jb.updateState()
 	return packet, nil
 }
@@ -232,7 +249,7 @@ func (jb *JitterBuffer) PopAtSequence(sq uint16) (*rtp.Packet, error) {
 		jb.emit(BufferUnderflow)
 		return nil, err
 	}
-	jb.playoutHead = (jb.playoutHead + 1)
+	jb.playoutHead++
 	jb.updateState()
 	return packet, nil
 }
@@ -275,7 +292,6 @@ func (jb *JitterBuffer) Clear(resetState bool) {
 	if resetState {
 		jb.lastSequence = 0
 		jb.state = Buffering
-		jb.stats = Stats{0, 0, 0}
-		jb.minStartCount = 50
+		jb.stats = Stats{0, 0, 0, 0}
 	}
 }
