@@ -90,7 +90,7 @@ func TestStatsRecorder(t *testing.T) {
 				ReceivedRTPStreamStats: ReceivedRTPStreamStats{
 					PacketsReceived: 3,
 					PacketsLost:     2,
-					Jitter:          90000 / 16,
+					Jitter:          0,
 				},
 				LastPacketReceivedTimestamp: now.Add(2 * time.Second),
 				HeaderBytesReceived:         36,
